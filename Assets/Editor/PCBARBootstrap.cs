@@ -1,6 +1,6 @@
 // =============================================================================
 // PCBARBootstrap.cs  —  EDITOR ONLY  (Assets/Editor/)
-// Author:      [Your Name]
+// Author:      Souhail
 // Date:        2024-01-01
 // Description: One-click scene bootstrapper. Creates the full PCB-AR
 //              GameObject hierarchy, adds every custom component, wires all
