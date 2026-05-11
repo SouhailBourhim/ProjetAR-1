@@ -2,16 +2,17 @@
 // ARSessionManager.cs
 // Author:      [Your Name]
 // Date:        2024-01-01
-// Description: Monitors ARSession state, requests camera permission on iOS,
+// Description: Monitors ARSession state, requests camera permission on Android,
 //              drives a TextMeshPro status label, and gates Vuforia tracking
-//              until ARKit reports it is ready.
-// Dependencies: AR Foundation 5.x, Apple ARKit XR Plugin, TextMeshPro,
+//              until ARCore reports it is ready.
+// Dependencies: AR Foundation 5.x, Google ARCore XR Plugin, TextMeshPro,
 //               VuforiaImageTargetManager.cs
 // =============================================================================
 
 using System.Collections;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Android;
 using UnityEngine.XR.ARFoundation;
 
 /// <summary>
@@ -92,29 +93,36 @@ public class ARSessionManager : MonoBehaviour
 
     private IEnumerator InitialiseARSession()
     {
-#if UNITY_IOS && !UNITY_EDITOR
+#if UNITY_ANDROID && !UNITY_EDITOR
         yield return RequestCameraPermission();
 #else
-        yield return null; // Skip permission check in Editor / Android
+        yield return null; // No runtime permission needed in Editor
 #endif
         SetStatusText(StatusInitializing);
         LogCurrentARState();
     }
 
-#if UNITY_IOS && !UNITY_EDITOR
+#if UNITY_ANDROID && !UNITY_EDITOR
     private IEnumerator RequestCameraPermission()
     {
-        AsyncOperation permissionOp =
-            Application.RequestUserAuthorization(UserAuthorization.WebCam);
+        if (Permission.HasUserAuthorizedPermission(Permission.Camera))
+        {
+            Debug.Log("[ARSessionManager] Camera permission already granted.");
+            yield break;
+        }
 
+        Permission.RequestUserPermission(Permission.Camera);
+
+        // Poll until the user dismisses the system dialog
         float elapsed = 0f;
-        while (!permissionOp.isDone && elapsed < cameraPermissionTimeout)
+        while (!Permission.HasUserAuthorizedPermission(Permission.Camera)
+               && elapsed < cameraPermissionTimeout)
         {
             elapsed += Time.deltaTime;
             yield return null;
         }
 
-        if (!Application.HasUserAuthorization(UserAuthorization.WebCam))
+        if (!Permission.HasUserAuthorizedPermission(Permission.Camera))
         {
             Debug.LogError("[ARSessionManager] Camera permission denied by user.");
             SetStatusText("Camera Permission Denied");
@@ -153,7 +161,7 @@ public class ARSessionManager : MonoBehaviour
             case ARSessionState.Unsupported:
                 SetStatusText(StatusNotSupported);
                 SetVuforiaEnabled(false);
-                Debug.LogWarning("[ARSessionManager] ARKit is not supported on this device.");
+                Debug.LogWarning("[ARSessionManager] ARCore is not supported on this device.");
                 break;
 
             case ARSessionState.Ready:

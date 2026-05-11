@@ -9,27 +9,31 @@ Follow these steps **in order** after importing all scripts into your Unity 2022
 | Package | Version | How to install |
 |---|---|---|
 | AR Foundation | 5.x | Package Manager → Unity Registry |
-| Apple ARKit XR Plugin | 5.x | Package Manager → Unity Registry |
+| Google ARCore XR Plugin | 5.x | Package Manager → Unity Registry |
 | Vuforia Engine | 10.x (Community) | Vuforia Developer Portal → `.unitypackage` |
 | TextMeshPro | (bundled with Unity) | Window → TextMeshPro → Import TMP Essentials |
 
 ---
 
-## Step 1 — Project Settings (iOS)
+## Step 1 — Project Settings (Android)
 
 1. **Edit → Project Settings → Player**
-   - Platform: iOS
-   - Bundle Identifier: `com.yourcompany.pcbar`
-   - Target minimum iOS version: **14.0**
-   - Architecture: **ARM64**
-   - Camera Usage Description: `"Required for AR tracking"`
+   - Platform: Android
+   - Package Name: `com.yourcompany.pcbar`
+   - Minimum API Level: **Android 7.0 (API 24)** — ARCore minimum
+   - Target API Level: **Android 14 (API 34)** or highest installed
+   - Architecture: **ARM64** (disable ARMv7 — ARCore requires 64-bit)
 
-2. **Edit → Project Settings → XR Plug-in Management → iOS**
-   - Enable **ARKit**
+2. **Edit → Project Settings → XR Plug-in Management → Android**
+   - Enable **ARCore**
 
 3. **Edit → Project Settings → Player → Other Settings**
    - Scripting Backend: **IL2CPP**
    - Api Compatibility Level: **.NET Standard 2.1**
+   - Internet Access: **Require** (UnityWebRequest needs it for StreamingAssets on some devices)
+
+4. **Camera permission** is declared automatically by the ARCore plugin via its
+   AAR manifest merge. The runtime request is handled by `ARSessionManager.cs`.
 
 ---
 
@@ -150,32 +154,37 @@ Add to the **ImageTarget** GameObject (which already has `ImageTargetBehaviour`)
 
 ---
 
-## Step 11 — iOS Native Plugin Stub (PDF share sheet)
+## Step 11 — Android Share Intent (PDF/TXT export)
 
-To enable the iOS share sheet in `PDFExporter`:
+No native plugin is needed. `PDFExporter.cs` fires an `ACTION_SEND` intent
+directly via `AndroidJavaObject`. The system chooser appears automatically,
+letting the user share the report via Gmail, Drive, Files, etc.
 
-1. In `Assets/Plugins/iOS/` create `SharePlugin.mm`:
+If you later want to share the `.txt` **file** (not just its text content),
+you must add a `FileProvider` to `Assets/Plugins/Android/AndroidManifest.xml`:
 
-```objc
-#import <UIKit/UIKit.h>
-#import "UnityAppController.h"
-
-extern "C" {
-    void ShareFile(const char* path) {
-        NSString* filePath = [NSString stringWithUTF8String:path];
-        NSURL* fileURL = [NSURL fileURLWithPath:filePath];
-        UIActivityViewController* ac =
-            [[UIActivityViewController alloc]
-                initWithActivityItems:@[fileURL]
-                applicationActivities:nil];
-        [UnityGetGLViewController() presentViewController:ac
-                                                 animated:YES
-                                               completion:nil];
-    }
-}
+```xml
+<provider
+    android:name="androidx.core.content.FileProvider"
+    android:authorities="${applicationId}.fileprovider"
+    android:exported="false"
+    android:grantUriPermissions="true">
+    <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/file_paths" />
+</provider>
 ```
 
-2. Unity will automatically include `.mm` files from `Assets/Plugins/iOS/` in the Xcode project.
+And create `Assets/Plugins/Android/res/xml/file_paths.xml`:
+
+```xml
+<paths>
+    <files-path name="reports" path="." />
+</paths>
+```
+
+Then replace the `ACTION_SEND` text intent in `PDFExporter.TriggerShareSheet`
+with a `Uri`-based intent using `FileProvider.getUriForFile`.
 
 ---
 
@@ -190,14 +199,15 @@ extern "C" {
 
 ## Step 13 — Build Checklist
 
-- [ ] iOS platform selected in Build Settings
+- [ ] Android platform selected in Build Settings
 - [ ] Scene added to Build Settings scenes list
 - [ ] Vuforia licence key entered in **Vuforia Configuration** (Window → Vuforia Configuration)
-- [ ] `NSCameraUsageDescription` set in Player Settings
 - [ ] `components_database.json` present in `Assets/StreamingAssets/`
-- [ ] IL2CPP + ARM64 build settings confirmed
-- [ ] Xcode project opens without errors after Unity build
-- [ ] Code-signed with a valid Apple Developer provisioning profile targeting an ARKit-capable device (iPhone 6s or later, iOS 14+)
+- [ ] Minimum API 24, Target API 34, ARM64 only confirmed in Player Settings
+- [ ] IL2CPP scripting backend selected
+- [ ] ARCore XR Plugin enabled under XR Plug-in Management → Android
+- [ ] Device has **Google Play Services for AR** installed (ARCore requirement)
+- [ ] Test device runs Android 7.0+ and is on the [ARCore supported devices list](https://developers.google.com/ar/devices)
 
 ---
 

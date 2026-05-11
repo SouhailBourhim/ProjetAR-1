@@ -4,7 +4,7 @@
 // Date:        2024-01-01
 // Description: Generates a plain-text diagnostic report of all detected PCB
 //              components and saves it to Application.persistentDataPath.
-//              On iOS, triggers the native share sheet via a DllImport stub.
+//              On Android, shares the report text via ACTION_SEND intent.
 //              NOTE: Replace the .txt generation with iTextSharp or
 //              Unity PDF Utility to produce real PDF output.
 // Dependencies: ComponentDatabaseLoader.cs, ComponentData.cs, TextMeshPro,
@@ -14,7 +14,6 @@
 using System;
 using System.Collections;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using TMPro;
 using UnityEngine;
@@ -33,23 +32,6 @@ public class PDFExporter : MonoBehaviour
     private const string AppName         = "PCB-AR Viewer";
     private const string DiagnosticStatus = "diagnostic status: OK";
     private const float  ToastDuration    = 2f;
-
-    // ------------------------------------------------------------------
-    // iOS native stub
-    // iOS native side (Swift/ObjC) must implement:
-    //   @objc func ShareFile(_ path: UnsafePointer<CChar>) {
-    //     let url = URL(fileURLWithPath: String(cString: path))
-    //     let ac  = UIActivityViewController(activityItems: [url],
-    //                                        applicationActivities: nil)
-    //     UnityGetGLViewController()?.present(ac, animated: true)
-    //   }
-    // Register it as a Unity plugin in a .mm file and export as "ShareFile".
-    // ------------------------------------------------------------------
-
-#if UNITY_IOS && !UNITY_EDITOR
-    [DllImport("__Internal")]
-    private static extern void ShareFile(string filePath);
-#endif
 
     // ------------------------------------------------------------------
     // Inspector fields
@@ -75,7 +57,7 @@ public class PDFExporter : MonoBehaviour
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Generates a diagnostic report .txt file and triggers the iOS share
+    /// Generates a diagnostic report .txt file and triggers the Android share
     /// sheet. Shows a 2-second toast message on completion.
     /// </summary>
     public void ExportReport()
@@ -93,7 +75,7 @@ public class PDFExporter : MonoBehaviour
 
         Debug.Log($"[PDFExporter] Report saved to: {filePath}");
 
-        TriggerShareSheet(filePath);
+        TriggerShareSheet(content);
 
         StartCoroutine(ShowToast("Report saved!"));
     }
@@ -154,15 +136,54 @@ public class PDFExporter : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
-    // Native share sheet
+    // Android share intent
+    // Shares the report text via ACTION_SEND so the user can save or
+    // forward it with any installed app (Gmail, Drive, Files, etc.).
+    // File-URI sharing (ACTION_SEND with a Uri) requires a FileProvider
+    // entry in AndroidManifest.xml; text sharing used here avoids that
+    // dependency while still surfacing all the report content.
     // ------------------------------------------------------------------
 
-    private static void TriggerShareSheet(string filePath)
+    private static void TriggerShareSheet(string content)
     {
-#if UNITY_IOS && !UNITY_EDITOR
-        ShareFile(filePath);
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            using (AndroidJavaClass intentClass =
+                       new AndroidJavaClass("android.content.Intent"))
+            using (AndroidJavaObject intent =
+                       new AndroidJavaObject("android.content.Intent"))
+            {
+                intent.Call<AndroidJavaObject>(
+                    "setAction", intentClass.GetStatic<string>("ACTION_SEND"));
+                intent.Call<AndroidJavaObject>("setType", "text/plain");
+                intent.Call<AndroidJavaObject>(
+                    "putExtra",
+                    intentClass.GetStatic<string>("EXTRA_SUBJECT"),
+                    "PCB-AR Diagnostic Report");
+                intent.Call<AndroidJavaObject>(
+                    "putExtra",
+                    intentClass.GetStatic<string>("EXTRA_TEXT"),
+                    content);
+
+                using (AndroidJavaClass unity =
+                           new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (AndroidJavaObject activity =
+                           unity.GetStatic<AndroidJavaObject>("currentActivity"))
+                using (AndroidJavaObject chooser =
+                           intentClass.CallStatic<AndroidJavaObject>(
+                               "createChooser", intent, "Share Report via…"))
+                {
+                    activity.Call("startActivity", chooser);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[PDFExporter] Android share intent failed: {ex.Message}");
+        }
 #else
-        Debug.Log($"[PDFExporter] Share sheet not available in Editor. Path: {filePath}");
+        Debug.Log("[PDFExporter] Share intent not available in Editor.");
 #endif
     }
 
